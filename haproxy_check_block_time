@@ -1,0 +1,68 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use JSON;
+use LWP::UserAgent;
+use DateTime;
+use DateTime::Format::ISO8601;
+use Sys::Syslog qw(:standard :macros);
+
+
+my $critical = 60;
+
+my $srv_addr = $ENV{'HAPROXY_SERVER_ADDR'};
+bailout('Environment variable missing', 'HAPROXY_SERVER_ADDR') unless defined($srv_addr);
+
+my $srv_port = $ENV{'HAPROXY_SERVER_PORT'};
+bailout('Environment variable missing', 'HAPROXY_SERVER_PORT') unless defined($srv_port);
+
+my $ua = LWP::UserAgent->new
+    (keep_alive => 1,
+     ssl_opts => { verify_hostname => 0 });
+$ua->timeout(3);
+
+
+my $res = $ua->get('http://' . $srv_addr . ':' . $srv_port . '/v1/chain/get_info');
+
+if( not $res->is_success )
+{
+     bailout('HTTP error', $res->decoded_content);
+}
+
+my $content = $res->decoded_content;
+my $result = eval { decode_json($content) };
+bailout('JSON parsing error', $@) if $@;
+
+
+my $block_time = $result->{'head_block_time'};
+bailout('Error', 'Cannot find head_block_time in the responce') unless defined($block_time);
+
+my $bt = eval {DateTime::Format::ISO8601->parse_datetime($block_time)};
+bailout('Date/time parsing error', $@) if $@;
+$bt->set_time_zone('UTC');
+
+my $now = DateTime->now('time_zone' => 'UTC');
+my $diff = $now->subtract_datetime_absolute($bt)->in_units('nanoseconds')/1.0e9;
+
+if( $diff > $critical )
+{
+    bailout('Head block is delayed for ' . $diff . ' seconds');
+}
+
+exit(0);
+
+
+sub bailout
+{
+    my ($error, $msg) = @_;
+    openlog($0, 'ndelay', 'LOG_USER');
+    syslog(LOG_CRIT, '%s: %s', $error, $msg);
+    closelog();
+    exit(1);
+}
+
+
+
+
+
