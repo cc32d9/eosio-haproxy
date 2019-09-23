@@ -1,6 +1,6 @@
-# HAProxy check scripts for eosio
+# HAProxy check script for eosio
 
-This is a simple script that send a `get_info` request to the backend
+This is a simple script that sends a `get_info` request to the backend
 `nodeos` instance and reports a failure status if the node is more
 than 60 seconds behind the host time.
 
