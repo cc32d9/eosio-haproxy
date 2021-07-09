@@ -47,7 +47,7 @@ my $diff = $now->subtract_datetime_absolute($bt)->in_units('nanoseconds')/1.0e9;
 
 if( $diff > $critical )
 {
-    bailout('Head block is delayed for ' . $diff . ' seconds');
+    bailout('Error', 'Head block is delayed for ' . $diff . ' seconds');
 }
 
 exit(0);
