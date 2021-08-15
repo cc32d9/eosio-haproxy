@@ -1,10 +1,13 @@
 # HAProxy check script for eosio
 
-This is a simple script that sends a `get_info` request to the backend
-`nodeos` instance and reports a failure status if the node is more
-than 60 seconds behind the host time.
+`haproxy_check_block_time` is a simple script that sends a `get_info`
+request to the backend `nodeos` instance and reports a failure status
+if the node is more than 60 seconds behind the host time. The script also sends detailed error messages to syslog.
 
-The script also sends detailed error messages to syslog.
+`h_check_eosio_ship` is checking the health of EOSIO state history
+plugin. It compares its head block with the head block that a provided
+EOSIO API is returning, and it returns an error if the state history
+is older than the critical value.
 
 
 ## Installation
@@ -12,7 +15,21 @@ The script also sends detailed error messages to syslog.
 ```
 apt install -y git libdatetime-format-iso8601-perl libjson-xs-perl libjson-perl libwww-perl
 
+curl -fsSL https://deb.nodesource.com/setup_14.x | bash -
+apt-get install -y nodejs
+
 git clone https://github.com/cc32d9/eosio-haproxy.git /opt/eosio-haproxy
+
+cd /opt/eosio-haproxy/ship
+npm install
+
+cat >/etc/default/h_check_eosio_ship_waxshipbe.json <<'EOT'
+{
+  "critical": 15,
+  "apiurl": "https://wax.eu.eosamsterdam.net"
+}
+EOT
+
 
 ```
 
@@ -49,6 +66,21 @@ backend apibe
     external-check command /opt/eosio-haproxy/haproxy_check_block_time
     server node1 10.0.3.20:8801 check
     server node2 10.0.3.20:8802 check
+
+frontend waxshipfe
+    bind 127.0.0.1:8080
+    mode tcp
+    use_backend waxshipbe
+    option log-separate-errors        
+
+backend waxshipbe
+    mode tcp
+    balance roundrobin
+    option allbackups
+    option external-check
+    external-check command /opt/eosio-haproxy/ship/h_check_eosio_ship
+    server ship01 1.2.3.4:8080 check inter 15s
+    server ship02 4.3.2.1:8080 check inter 15s
 ```
 
 
@@ -58,7 +90,7 @@ backend apibe
 
 ## Copyright and License
 
-Copyright 2019 cc32d9@gmail.com
+Copyright 2019-2021 cc32d9@gmail.com
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

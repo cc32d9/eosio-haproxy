@@ -1,0 +1,97 @@
+#!/usr/bin/node
+
+const WebSocket         = require('ws');
+const { Serialize }     = require('eosjs');
+const { TextDecoder, TextEncoder } = require('text-encoding');
+const fetch = require('node-fetch');
+
+var config = require('/etc/default/h_check_eosio_ship_' + process.env.HAPROXY_PROXY_NAME + '.json');
+let crit = config.critical;
+let urlApi = config.apiurl;
+
+const urlWs = 'ws://' + process.env.HAPROXY_SERVER_ADDR + ':' + process.env.HAPROXY_SERVER_PORT;
+
+
+var types;
+var abi_received = false;
+
+const ws = new WebSocket(urlWs, { perMessageDeflate: false });
+ws.on('error', (e) => {bailout('Websocket error: ' + e)});
+
+ws.on('message', data => onMessage(data));
+
+function bailout(text) {
+    console.error(text + "\n");
+    ws.close();
+    process.exit(1);
+}
+
+
+function onMessage(data) {
+    try {
+        if( !abi_received ) {
+            let abi = JSON.parse(data);
+            types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), abi);
+            abi_received = true;
+            send(['get_status_request_v0', {}]);
+        }
+        else {
+            const [type, response] = deserialize('result', data);
+            if( type == 'get_status_result_v0' ) {
+                let head = response.head.block_num;
+                if( response.trace_end_block != head+1 || response.chain_state_end_block != head+1 ) {
+                    bailout('CRITICAL - state history corrupted');
+                }
+
+                fetch(urlApi + '/v1/chain/get_info', {
+                    method: 'post',
+                    headers: { 'Content-Type': 'application/json' }
+                }).then(res => res.json())
+                    .then((infodata) => {
+                        let diff = (infodata.head_block_num - head) / 2;
+                        if ( diff > crit ) {
+                            bailout('State history delay ' + diff + 's at ' + urlWs);
+                        }
+
+                        // console.log('State history delay ' + diff + 's at ' + urlWs);
+                        ws.close();
+                        process.exit(0);
+                    });
+            }
+        }
+    }
+    catch(e) {
+        bailout(e);
+    }
+}
+
+
+function send(request) {
+    ws.send(serialize('request', request));
+}
+
+function serialize(type, value) {
+    const buffer = new Serialize.SerialBuffer({ textEncoder: new TextEncoder, textDecoder: new TextDecoder });
+    Serialize.getType(types, type).serialize(buffer, value);
+    return buffer.asUint8Array();
+}
+
+function deserialize(type, array) {
+    const buffer = new Serialize.SerialBuffer({ textEncoder: new TextEncoder, textDecoder: new TextDecoder, array });
+    let result = Serialize.getType(types, type).deserialize(buffer, new Serialize.SerializerState({ bytesAsUint8Array: true }));
+    if (buffer.readPos != array.length)
+        throw new Error('oops: ' + type); // todo: remove check
+    return result;
+}
+
+
+
+
+
+
+/*
+ Local Variables:
+ mode: javascript
+ indent-tabs-mode: nil
+ End:
+*/

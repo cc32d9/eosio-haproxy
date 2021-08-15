@@ -1,0 +1,26 @@
+{
+    "name": "eosio-haproxy-ship",
+    "description": "haproxy check for state history health",
+    "version": "0.0.1",
+    "contributors": [
+        {
+            "name": "cc32d9"
+        }
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:cc32d9/eosio-haproxy.git"
+    },
+    "license": "Apache-2.0",
+    "preferGlobal": true,
+    "bin": {
+        "h_check_eosio_ship": "./h_check_eosio_ship"
+    },
+    "dependencies": {
+        "eosjs": "^21.0.3",
+        "text-encoding": "^0.7.0",
+        "ws": "^6.1.3",
+        "node-fetch": ">= 2.6.0"
+    },
+    "keywords": []
+}
