@@ -71,7 +71,7 @@ frontend waxshipfe
     bind 127.0.0.1:8080
     mode tcp
     use_backend waxshipbe
-    option log-separate-errors        
+    option log-separate-errors
 
 backend waxshipbe
     mode tcp
@@ -79,8 +79,10 @@ backend waxshipbe
     option allbackups
     option external-check
     external-check command /opt/eosio-haproxy/ship/h_check_eosio_ship
-    server ship01 1.2.3.4:8080 check inter 15s
-    server ship02 4.3.2.1:8080 check inter 15s
+    default-server check inter 15s on-marked-down shutdown-sessions on-marked-up shutdown-backup-sessions
+    server ship01 1.2.3.4:8080
+    server ship02 4.3.2.1:8080
+
 ```
 
 
@@ -103,5 +105,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
-

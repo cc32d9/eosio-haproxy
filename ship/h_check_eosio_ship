@@ -5,17 +5,23 @@ const { Serialize }     = require('eosjs');
 const { TextDecoder, TextEncoder } = require('text-encoding');
 const fetch = require('node-fetch');
 
-var config = require('/etc/default/h_check_eosio_ship_' + process.env.HAPROXY_PROXY_NAME + '.json');
-let crit = config.critical;
-let urlApi = config.apiurl;
+var cfgfile = '/etc/default/h_check_eosio_ship_' + process.env.HAPROXY_PROXY_NAME + '.json';
+var config = require(cfgfile);
+if( config.critical == null ) {
+    console.error('"critical" value is not defined in ' + cfgfile);
+    process.exit(1);
+}
+if( config.apiurl == null ) {
+    console.error('"apiurl" value is not defined in ' + cfgfile);
+    process.exit(1);
+}
 
-const urlWs = 'ws://' + process.env.HAPROXY_SERVER_ADDR + ':' + process.env.HAPROXY_SERVER_PORT;
-
+const wsurl = 'ws://' + process.env.HAPROXY_SERVER_ADDR + ':' + process.env.HAPROXY_SERVER_PORT;
 
 var types;
 var abi_received = false;
 
-const ws = new WebSocket(urlWs, { perMessageDeflate: false });
+const ws = new WebSocket(wsurl, { perMessageDeflate: false });
 ws.on('error', (e) => {bailout('Websocket error: ' + e)});
 
 ws.on('message', data => onMessage(data));
@@ -43,19 +49,34 @@ function onMessage(data) {
                     bailout('CRITICAL - state history corrupted');
                 }
 
-                fetch(urlApi + '/v1/chain/get_info', {
+                fetch(config.apiurl + '/v1/chain/get_info', {
+                    timeout: 1000, // default check timeout in haproxy is 2s, and we should respond faster than that
                     method: 'post',
-                    headers: { 'Content-Type': 'application/json' }
-                }).then(res => res.json())
+                    headers: { 'Content-Type': 'application/json' } })
+                    .then((res) => {
+                        if (res.ok) { // res.status >= 200 && res.status < 300
+                            return res;
+                        }
+                        else {
+                            console.error('API request error at "' + config.apiurl + '": ' + res.statusText);
+                            process.exit(0); // we do not shut down ship because of API errors
+                        }})
+                    .then(res => res.json())
                     .then((infodata) => {
                         let diff = (infodata.head_block_num - head) / 2;
-                        if ( diff > crit ) {
-                            bailout('State history delay ' + diff + 's at ' + urlWs);
+                        if ( diff > config.critical ) {
+                            bailout('State history delay ' + diff + 's at ' + wsurl);
                         }
 
-                        // console.log('State history delay ' + diff + 's at ' + urlWs);
+                        if( config.verbose ) {
+                            console.log('State history delay ' + diff + 's at ' + wsurl);
+                        }
                         ws.close();
                         process.exit(0);
+                    })
+                    .catch((err) => {
+                        console.error('API request exception at "' + config.apiurl + '": ' + err);
+                        process.exit(0); // we do not shut down ship because of API errors
                     });
             }
         }
