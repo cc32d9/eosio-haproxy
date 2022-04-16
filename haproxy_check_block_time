@@ -17,10 +17,8 @@ bailout('Environment variable missing', 'HAPROXY_SERVER_ADDR') unless defined($s
 my $srv_port = $ENV{'HAPROXY_SERVER_PORT'};
 bailout('Environment variable missing', 'HAPROXY_SERVER_PORT') unless defined($srv_port);
 
-my $ua = LWP::UserAgent->new
-    (keep_alive => 1,
-     ssl_opts => { verify_hostname => 0 });
-$ua->timeout(3);
+my $ua = LWP::UserAgent->new(ssl_opts => { verify_hostname => 0 });
+$ua->timeout(1);
 
 
 my $res = $ua->get('http://' . $srv_addr . ':' . $srv_port . '/v1/chain/get_info');
@@ -47,7 +45,7 @@ my $diff = $now->subtract_datetime_absolute($bt)->in_units('nanoseconds')/1.0e9;
 
 if( $diff > $critical )
 {
-    bailout('Error', 'Head block is delayed for ' . $diff . ' seconds');
+    bailout('EOSIO API Health', 'Head block is delayed for ' . $diff . ' seconds');
 }
 
 exit(0);
@@ -56,9 +54,7 @@ exit(0);
 sub bailout
 {
     my ($error, $msg) = @_;
-    openlog($0, 'ndelay', 'LOG_USER');
-    syslog(LOG_CRIT, '%s: %s', $error, $msg);
-    closelog();
+    syslog(LOG_CRIT, '%s %s: %s', $ENV{'HAPROXY_SERVER_NAME'}, $error, $msg);
     exit(1);
 }
 
