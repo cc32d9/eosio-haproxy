@@ -1,0 +1,89 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use JSON;
+use LWP::UserAgent;
+use Sys::Syslog qw(:standard :macros);
+use IO::File;
+
+my $critical_time_behind = 60;
+my $critical_blocks_behind = 600;
+my $use_https = 0;
+
+my $cfgfile = '/etc/default/haproxy_check_aa_health_' . $ENV{'HAPROXY_PROXY_NAME'} . '.json';
+if( -r $cfgfile )
+{
+    eval {
+        my $fh = IO::File->new($cfgfile) or die($!);
+        my $config = decode_json(join('', $fh->getlines()));
+        if( defined $config->{'critical_time_behind'} )
+        {
+            $critical_time_behind = $config->{'critical_time_behind'};
+        }
+        if( defined $config->{'critical_blocks_behind'} )
+        {
+            $critical_blocks_behind = $config->{'critical_blocks_behind'};
+        }
+        if( defined $config->{'use_https'} )
+        {
+            $use_https = $config->{'use_https'};
+        }
+    };
+
+    if( $@ )
+    {
+        syslog(LOG_ERR, 'error reading %s: %s', $cfgfile, $@);
+    }
+}
+
+
+my $srv_addr = $ENV{'HAPROXY_SERVER_ADDR'};
+bailout('Environment variable missing', 'HAPROXY_SERVER_ADDR') unless defined($srv_addr);
+
+my $srv_port = $ENV{'HAPROXY_SERVER_PORT'};
+bailout('Environment variable missing', 'HAPROXY_SERVER_PORT') unless defined($srv_port);
+
+my $ua = LWP::UserAgent->new
+    (keep_alive => 1,
+     ssl_opts => { verify_hostname => 0 });
+$ua->timeout(3);
+
+my $res = $ua->get(($use_https?'https://':'http://') . $srv_addr . ':' . $srv_port . '/health');
+
+if( not $res->is_success )
+{
+     bailout('HTTP error', $res->decoded_content);
+}
+
+my $content = $res->decoded_content;
+my $result = eval { decode_json($content) };
+bailout('JSON parsing error', $@) if $@;
+
+my $time_diff = ($result->{'query_time'} - $result->{'data'}{'chain'}{'head_time'})/1000;
+if( $time_diff > $critical_time_behind )
+{
+    bailout('Service Health', 'AA API EOSIO head block is delayed for ' . $time_diff . ' seconds');
+}
+
+if( $result->{'data'}{'postgres'}{'status'} ne 'OK' )
+{
+    bailout('Service Health', 'AA API postgres is not OK: ' . $result->{'data'}{'postgres'}{'status'});
+}
+
+my $blocks_diff = $result->{'data'}{'chain'}{'head_block'} - $result->{'data'}{'postgres'}{'readers'}[0]{'block_num'};
+if( $blocks_diff > $critical_blocks_behind )
+{
+    bailout('Service Health', 'AA API is behind the head for ' . $blocks_diff . ' blocks');
+}
+
+# syslog(LOG_INFO, 'AA %-35s time_diff=%f blocks_diff=%d', $ENV{'HAPROXY_SERVER_NAME'}, $time_diff, $blocks_diff);
+
+exit(0);
+
+sub bailout
+{
+    my ($error, $msg) = @_;
+    syslog(LOG_CRIT, '%s %s: %s', $ENV{'HAPROXY_SERVER_NAME'}, $error, $msg);
+    exit(1);
+}

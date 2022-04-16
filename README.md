@@ -9,6 +9,7 @@ plugin. It compares its head block with the head block that a provided
 EOSIO API is returning, and it returns an error if the state history
 is older than the critical value.
 
+`haproxy_check_aa_health` is checking the AtomicAssetts API health.
 
 ## Installation
 
@@ -20,6 +21,8 @@ apt-get install -y nodejs
 
 git clone https://github.com/cc32d9/eosio-haproxy.git /opt/eosio-haproxy
 
+# state history monitor requires a configuration file that
+# specifies the EOSIO API URL
 cd /opt/eosio-haproxy/ship
 npm install
 
@@ -30,8 +33,15 @@ cat >/etc/default/h_check_eosio_ship_waxshipbe.json <<'EOT'
 }
 EOT
 
-
+# AtomicAssets monitor configuration is optional, and allows tuning
+# the critical thresholds
+cat >/etc/default/haproxy_check_aa_health_waxaabe.json <<'EOT'
+{
+        "critical_blocks_behind": 100
+}
+EOT
 ```
+
 
 Example HAProcy configuration
 
@@ -83,6 +93,22 @@ backend waxshipbe
     server ship01 1.2.3.4:8080
     server ship02 4.3.2.1:8080
 
+
+frontend waxaafe
+    bind 127.0.0.1:9000
+    mode http
+    use_backend waxaabe
+    mode    http
+    option  dontlognull
+    option  log-separate-errors
+
+backend waxaabe
+    mode http
+    option external-check
+    external-check command /opt/eosio-haproxy/haproxy_check_aa_health
+    server aa-api01 aa-api01.example.com:9000 check
+    server aa-api02 aa-api02.example.com:9000 check backup
+    server aa-api03 aa-api03.example.com:9000 check backup
 ```
 
 
@@ -92,7 +118,7 @@ backend waxshipbe
 
 ## Copyright and License
 
-Copyright 2019-2021 cc32d9@gmail.com
+Copyright 2019-2022 cc32d9@gmail.com
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
