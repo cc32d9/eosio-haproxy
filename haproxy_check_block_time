@@ -18,7 +18,7 @@ my $srv_port = $ENV{'HAPROXY_SERVER_PORT'};
 bailout('Environment variable missing', 'HAPROXY_SERVER_PORT') unless defined($srv_port);
 
 my $ua = LWP::UserAgent->new(ssl_opts => { verify_hostname => 0 });
-$ua->timeout(1);
+$ua->timeout(1.5);
 
 
 my $res = $ua->get('http://' . $srv_addr . ':' . $srv_port . '/v1/chain/get_info');
