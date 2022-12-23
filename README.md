@@ -11,6 +11,11 @@ is older than the critical value.
 
 `haproxy_check_aa_health` is checking the AtomicAssetts API health.
 
+`haproxy_check_hyperion_health` is checking the health of Hyperion API
+by EOS Rio. It fails if the API is behind the head block or if the
+number of unindexed blocks is increasing.
+
+
 ## Installation
 
 ```
@@ -43,7 +48,7 @@ EOT
 ```
 
 
-Example HAProcy configuration
+Example HAProxy configuration
 
 ```
 global
@@ -109,9 +114,25 @@ backend waxaabe
     server aa-api01 aa-api01.example.com:9000 check
     server aa-api02 aa-api02.example.com:9000 check backup
     server aa-api03 aa-api03.example.com:9000 check backup
+
+frontend waxhyperfe
+    bind 127.0.0.1:7000
+    mode http
+    use_backend waxhyperbe
+    option  dontlognull
+    option log-separate-errors
+
+backend waxhyperbe
+    mode http
+    option external-check
+    external-check command /opt/eosio-haproxy/haproxy_check_hyperion_health
+    server hyper03.example.com hyper03.example.com:7000 check inter 10s
+    server hyper04.example.com hyper04.example.com:7000 check inter 10s
+    server hyper05.example.com hyper05.example.com:7000 backup
 ```
 
-
+In the Hyperion proxy, backup is not performing the checks, so that it
+always stays online as a last resort.
 
 
 
