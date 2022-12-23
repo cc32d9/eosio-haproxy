@@ -8,7 +8,6 @@ use DateTime;
 use DateTime::Format::ISO8601;
 use Sys::Syslog qw(:standard :macros);
 
-
 my $critical = 60;
 
 my $srv_addr = $ENV{'HAPROXY_SERVER_ADDR'};
@@ -50,15 +49,12 @@ if( $diff > $critical )
 
 exit(0);
 
-
 sub bailout
 {
     my ($error, $msg) = @_;
-    syslog(LOG_CRIT, '%s %s: %s', $ENV{'HAPROXY_SERVER_NAME'}, $error, $msg);
+    my $errmsg = sprintf('%s %s: %s', $ENV{'HAPROXY_SERVER_NAME'}, $error, $msg);
+    print STDERR $0, ': ', $errmsg, "\n";
+    openlog($0, "", "local0");
+    syslog(LOG_CRIT, $errmsg);
     exit(1);
 }
-
-
-
-
-

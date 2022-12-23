@@ -11,7 +11,11 @@ my $critical_time_behind = 60;
 my $critical_blocks_behind = 600;
 my $use_https = 0;
 
-my $cfgfile = '/etc/default/haproxy_check_aa_health_' . $ENV{'HAPROXY_PROXY_NAME'} . '.json';
+my $proxy_name = $ENV{'HAPROXY_PROXY_NAME'};
+bailout('Environment variable missing', 'HAPROXY_PROXY_NAME') unless defined($proxy_name);
+
+
+my $cfgfile = '/etc/default/haproxy_check_aa_health_' . $proxy_name . '.json';
 if( -r $cfgfile )
 {
     eval {
@@ -33,7 +37,7 @@ if( -r $cfgfile )
 
     if( $@ )
     {
-        syslog(LOG_ERR, 'error reading %s: %s', $cfgfile, $@);
+        bailout('Config file', sprintf('error reading %s: %s', $cfgfile, $@));
     }
 }
 
@@ -75,13 +79,14 @@ if( $blocks_diff > $critical_blocks_behind )
     bailout('Service Health', 'AA API is behind the head for ' . $blocks_diff . ' blocks');
 }
 
-# syslog(LOG_INFO, 'AA %-35s time_diff=%f blocks_diff=%d', $ENV{'HAPROXY_SERVER_NAME'}, $time_diff, $blocks_diff);
-
 exit(0);
 
 sub bailout
 {
     my ($error, $msg) = @_;
-    syslog(LOG_CRIT, '%s %s: %s', $ENV{'HAPROXY_SERVER_NAME'}, $error, $msg);
+    my $errmsg = sprintf('%s %s: %s', $ENV{'HAPROXY_SERVER_NAME'}, $error, $msg);
+    print STDERR $0, ': ', $errmsg, "\n";
+    openlog($0, "", "local0");
+    syslog(LOG_CRIT, $errmsg);
     exit(1);
 }
