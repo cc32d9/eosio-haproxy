@@ -1,0 +1,131 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use JSON;
+use LWP::UserAgent;
+use DateTime;
+use DateTime::Format::ISO8601;
+use Sys::Syslog qw(:standard :macros);
+use IO::File;
+
+my $head_block_time_critical = 20;
+my $last_indexed_block_critical = 30;
+my $unindexed_critical = 5;
+
+my $status_file_dir = '/var/tmp';
+
+my $srv_addr = $ENV{'HAPROXY_SERVER_ADDR'};
+bailout('Environment variable missing', 'HAPROXY_SERVER_ADDR') unless defined($srv_addr);
+
+my $srv_port = $ENV{'HAPROXY_SERVER_PORT'};
+bailout('Environment variable missing', 'HAPROXY_SERVER_PORT') unless defined($srv_port);
+
+my $ua = LWP::UserAgent->new(ssl_opts => { verify_hostname => 0 });
+$ua->timeout(1.5);
+
+
+my $res = $ua->get('http://' . $srv_addr . ':' . $srv_port . '/v2/health');
+
+if( not $res->is_success )
+{
+     bailout('HTTP error', $res->decoded_content);
+}
+
+my $content = $res->decoded_content;
+my $result = eval { decode_json($content) };
+bailout('JSON parsing error', $@) if $@;
+
+my %svcstatus;
+
+foreach my $svc (@{$result->{'health'}})
+{
+    $svcstatus{$svc->{'service'}} = $svc;
+    if( $svc->{'status'} ne 'OK' )
+    {
+        bailout('Hyperion service', $svc->{'service'} . ' status is ' . $svc->{'status'});
+    }
+}
+
+my $block_time = $svcstatus{'NodeosRPC'}{'service_data'}{'head_block_time'};
+bailout('Error', 'Cannot find head_block_time in the responce') unless defined($block_time);
+
+my $bt = eval {DateTime::Format::ISO8601->parse_datetime($block_time)};
+bailout('Date/time parsing error', $@) if $@;
+$bt->set_time_zone('UTC');
+
+my $now = DateTime->now('time_zone' => 'UTC');
+my $diff = $now->subtract_datetime_absolute($bt)->in_units('nanoseconds')/1.0e9;
+
+if( $diff > $head_block_time_critical )
+{
+    bailout('EOSIO API Health', 'Head block is delayed for ' . $diff . ' seconds');
+}
+
+my $head_block_number = $svcstatus{'NodeosRPC'}{'service_data'}{'head_block_num'};
+
+my $es_last_indexed_block = $svcstatus{'Elasticsearch'}{'service_data'}{'last_indexed_block'};
+my $es_total_indexed_blocks = $svcstatus{'Elasticsearch'}{'service_data'}{'total_indexed_blocks'};
+
+my $delta = $head_block_number - $es_last_indexed_block;
+if( $head_block_number - $es_last_indexed_block > $last_indexed_block_critical )
+{
+    bailout('Hyperion indexer', 'last_indexed_block is ' . $delta . ' blocks behind');
+}
+
+my $status_file = $status_file_dir . '/haproxy_check_hyperion_health_' . $srv_addr . '_' . $srv_port;
+my $write_new_status = 0;
+
+if( -e $status_file )
+{
+    my $old_last_indexed_block;
+    my $old_total_indexed_blocks;
+
+    eval {
+        my $fh = IO::File->new($status_file) or die($!);
+        my $old_status = decode_json(join('', $fh->getlines()));
+        $old_last_indexed_block = $old_status->{'last_indexed_block'};
+        $old_total_indexed_blocks = $old_status->{'total_indexed_blocks'};
+    };
+    bailout('JSON error in ' . $status_file, $@) if $@;
+
+    my $old_delta = $old_last_indexed_block - $old_total_indexed_blocks;
+    my $new_delta = $es_last_indexed_block - $es_total_indexed_blocks;
+
+    if( $new_delta < $old_delta )
+    {
+        $write_new_status = 1; # the health is improved, remember the new value
+    }
+    elsif( $new_delta > $old_delta + $unindexed_critical )
+    {
+        bailout('Hyperion indexer', 'last-total delta increased. old: ' . $old_delta . ', new: ' . $new_delta);
+    }
+}
+else
+{
+    $write_new_status = 1;
+}
+
+if( $write_new_status )
+{
+    eval {
+        my $fh = IO::File->new($status_file, 'w') or die($!);
+        $fh->print(encode_json({'last_indexed_block' => $es_last_indexed_block,
+                                    'total_indexed_blocks' => $es_total_indexed_blocks}));
+        $fh->close();
+    };
+    bailout('Cannot write ' . $status_file, $@) if $@;
+}
+
+exit(0);
+
+
+sub bailout
+{
+    my ($error, $msg) = @_;
+    my $errmsg = sprintf('%s %s: %s', $ENV{'HAPROXY_SERVER_NAME'}, $error, $msg);
+    print STDERR $0, ': ', $errmsg, "\n";
+    openlog($0, "", "local0");
+    syslog(LOG_CRIT, $errmsg);
+    exit(1);
+}
