@@ -41,7 +41,7 @@ my %svcstatus;
 foreach my $svc (@{$result->{'health'}})
 {
     $svcstatus{$svc->{'service'}} = $svc;
-    if( $svc->{'status'} ne 'OK' )
+    if( ($svc->{'status'} ne 'OK') and ($svc->{'status'}  ne 'Warning') )
     {
         bailout('Hyperion service', $svc->{'service'} . ' status is ' . $svc->{'status'});
     }
