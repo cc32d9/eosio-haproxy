@@ -59,6 +59,7 @@ global
         group haproxy
         daemon
         external-check
+        insecure-fork-wanted
 
 defaults
         log     global
