@@ -75,7 +75,7 @@ if( $head_block_number - $es_last_indexed_block > $last_indexed_block_critical )
 
 my $missing = $svcstatus{'Elasticsearch'}{'service_data'}{'missing_blocks'};
 if( defined($missing) and $missing > 0 ) {
-    bailout('Missing ' . $missing . ' blocks');
+    bailout('Hyperion service', 'Missing ' . $missing . ' blocks');
 }
 
 
