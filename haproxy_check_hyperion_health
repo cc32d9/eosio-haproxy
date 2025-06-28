@@ -73,48 +73,50 @@ if( $head_block_number - $es_last_indexed_block > $last_indexed_block_critical )
     bailout('Hyperion indexer', 'last_indexed_block is ' . $delta . ' blocks behind');
 }
 
-my $status_file = $status_file_dir . '/haproxy_check_hyperion_health_' . $srv_addr . '_' . $srv_port;
-my $write_new_status = 0;
+if( not $result->{'pruning'}{'auto_pruning_enabled'} ) {
+    my $status_file = $status_file_dir . '/haproxy_check_hyperion_health_' . $srv_addr . '_' . $srv_port;
+    my $write_new_status = 0;
 
-if( -e $status_file )
-{
-    my $old_last_indexed_block;
-    my $old_total_indexed_blocks;
-
-    eval {
-        my $fh = IO::File->new($status_file) or die($!);
-        my $old_status = decode_json(join('', $fh->getlines()));
-        $old_last_indexed_block = $old_status->{'last_indexed_block'};
-        $old_total_indexed_blocks = $old_status->{'total_indexed_blocks'};
-    };
-    bailout('JSON error in ' . $status_file, $@) if $@;
-
-    my $old_delta = $old_last_indexed_block - $old_total_indexed_blocks;
-    my $new_delta = $es_last_indexed_block - $es_total_indexed_blocks;
-
-    if( $new_delta < $old_delta )
+    if( -e $status_file )
     {
-        $write_new_status = 1; # the health is improved, remember the new value
-    }
-    elsif( $new_delta > $old_delta + $unindexed_critical )
-    {
-        bailout('Hyperion indexer', 'last-total delta increased. old: ' . $old_delta . ', new: ' . $new_delta);
-    }
-}
-else
-{
-    $write_new_status = 1;
-}
+        my $old_last_indexed_block;
+        my $old_total_indexed_blocks;
 
-if( $write_new_status )
-{
-    eval {
-        my $fh = IO::File->new($status_file, 'w') or die($!);
-        $fh->print(encode_json({'last_indexed_block' => $es_last_indexed_block,
-                                    'total_indexed_blocks' => $es_total_indexed_blocks}));
-        $fh->close();
-    };
-    bailout('Cannot write ' . $status_file, $@) if $@;
+        eval {
+            my $fh = IO::File->new($status_file) or die($!);
+            my $old_status = decode_json(join('', $fh->getlines()));
+            $old_last_indexed_block = $old_status->{'last_indexed_block'};
+            $old_total_indexed_blocks = $old_status->{'total_indexed_blocks'};
+        };
+        bailout('JSON error in ' . $status_file, $@) if $@;
+
+        my $old_delta = $old_last_indexed_block - $old_total_indexed_blocks;
+        my $new_delta = $es_last_indexed_block - $es_total_indexed_blocks;
+
+        if( $new_delta < $old_delta )
+        {
+            $write_new_status = 1; # the health is improved, remember the new value
+        }
+        elsif( $new_delta > $old_delta + $unindexed_critical )
+        {
+            bailout('Hyperion indexer', 'last-total delta increased. old: ' . $old_delta . ', new: ' . $new_delta);
+        }
+    }
+    else
+    {
+        $write_new_status = 1;
+    }
+
+    if( $write_new_status )
+    {
+        eval {
+            my $fh = IO::File->new($status_file, 'w') or die($!);
+            $fh->print(encode_json({'last_indexed_block' => $es_last_indexed_block,
+                                        'total_indexed_blocks' => $es_total_indexed_blocks}));
+            $fh->close();
+        };
+        bailout('Cannot write ' . $status_file, $@) if $@;
+    }
 }
 
 exit(0);
