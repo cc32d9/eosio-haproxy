@@ -1,0 +1,45 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use JSON;
+use DBI;
+use Sys::Syslog qw(:standard :macros);
+
+my $critical = 60;
+
+my $srv_addr = $ENV{'HAPROXY_SERVER_ADDR'};
+bailout('Environment variable missing', 'HAPROXY_SERVER_ADDR') unless defined($srv_addr);
+
+my $srv_port = $ENV{'HAPROXY_SERVER_PORT'};
+bailout('Environment variable missing', 'HAPROXY_SERVER_PORT') unless defined($srv_port);
+
+my $dbname = $ENV{'HAPROXY_PROXY_NAME'};
+bailout('Environment variable missing', 'HAPROXY_PROXY_NAME') unless defined($dbname);
+$dbname =~ s/_be$//;
+
+my $connect_string = sprintf('dbi:Pg:dbname=%s;host=%s;port=%d', $dbname, $srv_addr, $srv_port);
+
+my $dbh = DBI->connect($connect_string, 'HEALTHCHECK', 'HEALTHCHECK', {AutoCommit => 0, RaiseError => 1, PrintError => 0});
+bailout('Cannot connect to ' . $connect_string) unless $dbh;
+
+my $r = $dbh->selectall_arrayref('SELECT MIN(EXTRACT(SECOND FROM NOW() - block_time)) FROM sync');
+my $diff = $r->[0][0];
+bailout('sync table is empty') unless defined($diff);
+
+if( $diff > $critical )
+{
+    bailout('EOSIO API Health', 'Head block is delayed for ' . $diff . ' seconds');
+}
+
+exit(0);
+
+sub bailout
+{
+    my ($error, $msg) = @_;
+    my $errmsg = sprintf('%s %s: %s', $ENV{'HAPROXY_SERVER_NAME'}, $error, $msg);
+    print STDERR $0, ': ', $errmsg, "\n";
+    openlog($0, "", "local0");
+    syslog(LOG_CRIT, $errmsg);
+    exit(1);
+}
